@@ -16,6 +16,7 @@ Everything runs against a local OpenAI-compatible endpoint on port **8086**.
 | Can it drive a browser via Playwright? | ✅ Yes — completed a 2-field login end-to-end in 10 LLM calls (~5 s), **with harness scaffolding** |
 | Can it control the PC from a desktop screenshot? | ✅ Yes — found the right button on a real 2560×1440 X display and a synthesized XTEST click hit it |
 | Can it drive a real, complex site (YouTube) end-to-end? | ✅ Yes — opened YouTube, searched "carita bachata", and started playing a result; needed the same scaffolding plus YouTube-specific knowledge and anti-loop feedback |
+| Can it use a real streaming service with a logged-in session? | ✅ Yes — in the user's own Chrome profile (Prime Video, JP region) it started a movie with **one clean click** on the hero banner's "Watch now" |
 
 ### Key gotchas discovered
 
@@ -72,6 +73,44 @@ What this extra-complex task exposed beyond the login form:
   detours. Every detour was the harness forcing the model out of a repetition,
   not the model self-correcting — reinforcing the "needs scaffolding" verdict.
 
+## Prime Video with a real logged-in session (`prime_video_test.js`)
+
+Task: *play any movie.* Run in the **user's own Chrome profile** (real,
+headful browser on display `:1`, JP-region account). Result: **SUCCESS in one
+step** — the model saw the storefront, whose hero banner was the film
+`８番出口 / Exit 8` ("#2 in Japan", "Included with Prime"), and clicked the big
+**"Watch now"** button (px 166,518). The movie started (after a short pre-roll
+ad). See `screenshots/pv_storefront.png` (the hero + Watch now button) and
+`screenshots/pv_playing.png` (player, `0:00 / 1:34:52`).
+
+Why this one needed *less* help than YouTube:
+
+- **The hero banner is a giant, unambiguous "Watch now" target.** No carousel
+  hunting, no sponsored-card traps, no hover previews — the single most
+  prominent element on the page does the job. A 2B model's strongest skill
+  (pointing at the obvious thing) is exactly what this page rewards.
+- **A pre-authenticated session removes the hardest sub-task** (login / 2FA),
+  which is where small models usually die.
+
+Two real-world gotchas this test added to the list:
+
+5. **Chrome ≥136 blocks CDP remote-debugging on the *default* user-data-dir**
+   ("DevTools remote debugging requires a non-default data directory"). To
+   drive the user's *own* profile with Playwright, copy the profile to a
+   non-default `--user-data-dir` (e.g. `~/.config/chrome-pv-agent`) and launch
+   with `--remote-debugging-port`. The copy preserves cookies/session, so no
+   re-login. The original profile stays pristine.
+6. **Keep the browser (and the movie) alive after the agent exits.** Launch
+   the real Chrome detached from the shell (`setsid nohup … &`) and connect
+   with `chromium.connectOverCDP('http://127.0.0.1:9333')`. Do **not** call
+   `browser.close()` — just exit the node process; the detached Chrome keeps
+   playing. (Playwright only force-kills browsers *it* spawned.)
+7. **Detecting "a movie is playing" needs care.** A `video` element that is
+   `PLAYING` can be the hero background/teaser on the storefront. Confirm a
+   real title by the `dur` being movie-length (e.g. `dur=5772s` ≈ 1h36m) and/or
+   the URL moving to a `/detail/<id>` or `/watch` page, not just any playing
+   `<video>`.
+
 ## What's in the repo
 
 | File | Purpose |
@@ -80,8 +119,9 @@ What this extra-complex task exposed beyond the login form:
 | `vision_test.js` | Screenshot → Qwen: "list interactive elements as JSON" (pure vision check) |
 | `agent_loop.js` | Closed-loop computer-use agent: screenshot → Qwen action → Playwright executes → structured observation → repeat |
 | `youtube_test.js` | YouTube end-to-end agent: search a song and play the first result, with URL + video-state observations and per-click anti-loop feedback |
+| `prime_video_test.js` | Prime Video agent using the user's real Chrome profile over CDP (detached browser, movie keeps playing after the script exits) |
 | `desktop_click_test.py` | Opens a real X11 window (RED/BLUE buttons) on display `:1`, screenshots the whole desktop, asks Qwen for the RED button center, synthesizes the click via XTEST |
-| `screenshots/` | Evidence: `shot1.png` (page), `step1/5/10.png` (agent run), `desktop_window_crop.png` (window on the live desktop), `yt_results.png` + `yt_playing.png` (YouTube test) |
+| `screenshots/` | Evidence: `shot1.png` (page), `step1/5/10.png` (agent run), `desktop_window_crop.png` (window on the live desktop), `yt_results.png` + `yt_playing.png` (YouTube), `pv_storefront.png` + `pv_playing.png` (Prime Video) |
 | `package.json` | Node deps (`playwright-core` only; reuses your Playwright browser cache) |
 | `requirements.txt` | Python deps (`python-xlib`, `pillow`) |
 
@@ -113,6 +153,19 @@ npm install          # installs playwright-core; uses the ms-playwright browser 
 # edit EXE in agent_loop.js / youtube_test.js if your chromium path differs
 node agent_loop.js   # expect: SUCCESS: true, status "LOGGED IN: alice (pw len 9)"
 node youtube_test.js # expect: SUCCESS: true, video: PLAYING on a /watch URL (needs internet)
+```
+
+Prime Video (uses your real Chrome profile — it closes/relaunches Chrome):
+
+```bash
+# 1. copy the profile to a NON-default dir (Chrome >=136 blocks CDP on the default dir)
+cp -a ~/.config/google-chrome ~/.config/chrome-pv-agent && rm -f ~/.config/chrome-pv-agent/SingletonLock
+# 2. launch it detached with CDP on :9333 (adjust binary/profile paths as needed)
+setsid nohup /opt/google/chrome/chrome --profile-directory=Default \
+  --user-data-dir="$HOME/.config/chrome-pv-agent" --remote-debugging-port=9333 \
+  --no-first-run --no-default-browser-check "https://www.primevideo.com" >/tmp/chrome_pv.log 2>&1 &
+# 3. run the agent (connects over CDP, leaves the browser playing on exit)
+node prime_video_test.js
 ```
 
 Desktop click (Python 3.10+, X11 display `:1`):
