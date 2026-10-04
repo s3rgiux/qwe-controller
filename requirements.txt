@@ -1,0 +1,2 @@
+python-xlib>=0.15
+pillow>=10

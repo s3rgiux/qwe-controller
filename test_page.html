@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Acme Portal — Sign In</title>
+<style>
+  body { font-family: Arial, sans-serif; background: #eef1f5; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
+  .card { background: #fff; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,.15); padding: 32px 40px; width: 380px; }
+  h1 { font-size: 20px; margin: 0 0 4px; color: #222; }
+  .sub { color: #777; font-size: 13px; margin-bottom: 20px; }
+  label { display: block; font-size: 13px; color: #444; margin: 12px 0 4px; }
+  input { width: 100%; box-sizing: border-box; padding: 9px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; }
+  button { margin-top: 18px; width: 100%; padding: 11px; font-size: 15px; font-weight: bold; color: #fff; background: #2563eb; border: none; border-radius: 6px; cursor: pointer; }
+  .link { margin-top: 14px; text-align: center; font-size: 12px; }
+  .link a { color: #2563eb; text-decoration: none; }
+  #status { margin-top: 14px; font-size: 14px; text-align: center; color: green; min-height: 20px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Acme Portal</h1>
+    <div class="sub">Sign in to continue to your workspace</div>
+    <label for="username">Username</label>
+    <input id="username" type="text" placeholder="your username">
+    <label for="password">Password</label>
+    <input id="password" type="password" placeholder="••••••••">
+    <button id="login-btn" onclick="doLogin()">Log In</button>
+    <div class="link"><a href="#">Forgot your password?</a></div>
+    <div id="status"></div>
+  </div>
+  <script>
+    function doLogin() {
+      const u = document.getElementById('username').value;
+      const p = document.getElementById('password').value;
+      document.getElementById('status').textContent = (u && p) ? 'LOGGED IN: ' + u + ' (pw len ' + p.length + ')' : 'ERROR: missing fields';
+    }
+  </script>
+</body>
+</html>

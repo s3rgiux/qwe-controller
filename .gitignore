@@ -1,0 +1,7 @@
+node_modules/
+.npmcache/
+*.log
+# full desktop screenshots contain personal desktop content — keep local only
+desktop.png
+desktop_click.png
+/step*.png
