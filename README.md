@@ -15,6 +15,7 @@ Everything runs against a local OpenAI-compatible endpoint on port **8086**.
 | Can it see UI screenshots? | ✅ Yes — with mmproj it detects inputs/buttons/links; grounding error < 5 px at 1280×800, ~15 px at 2560×1440 |
 | Can it drive a browser via Playwright? | ✅ Yes — completed a 2-field login end-to-end in 10 LLM calls (~5 s), **with harness scaffolding** |
 | Can it control the PC from a desktop screenshot? | ✅ Yes — found the right button on a real 2560×1440 X display and a synthesized XTEST click hit it |
+| Can it drive a real, complex site (YouTube) end-to-end? | ✅ Yes — opened YouTube, searched "carita bachata", and started playing a result; needed the same scaffolding plus YouTube-specific knowledge and anti-loop feedback |
 
 ### Key gotchas discovered
 
@@ -43,6 +44,34 @@ Everything runs against a local OpenAI-compatible endpoint on port **8086**.
 4. **Verdict:** usable for *guided/assisted* control with a robust harness;
    for unattended autonomy expect a ≥7B VLM.
 
+## YouTube end-to-end test (`youtube_test.js`)
+
+Task: *open YouTube, search "carita bachata", play the first result.* Result:
+**SUCCESS** — the video `Aitor y Angelica | Jensen - Carita | Bachata 2026`
+started playing (`/watch?v=jmVBRgo5pJU`, `video: PLAYING`). See
+`screenshots/yt_results.png` (results page) and `screenshots/yt_playing.png`
+(video playing at 0:01/3:10).
+
+What this extra-complex task exposed beyond the login form:
+
+- **Sponsored cards + hover-preview overlays are traps.** The first card is a
+  sponsored ad whose thumbnail raises an `#inline-preview-player` overlay that
+  swallows clicks (focus lands on a non-interactive `DIV`, URL never changes).
+  Fix: tell the model to **click the title text** (right of the thumbnail), not
+  the image, and to skip "Sponsored" cards.
+- **Anti-loop feedback must be immediate.** On the login form a 3×-repeat stall
+  detector sufficed. On YouTube the model repeated one dead click 12+ times and
+  even "fixed" it by re-running the search (type + Enter) instead of moving on.
+  Fix: after *every* click that did not change the URL, inject a warning right
+  away ("your click did NOT navigate — click the TITLE text, don't repeat the
+  same point"). That is what finally broke the loop.
+- **Search itself was trivial** for the model: it found the search box, typed
+  the query, and pressed Enter in 3 clean steps. Navigation into the results
+  list was the hard part.
+- It took **14 steps** (vs ~10 for the login) because of the loop-recovery
+  detours. Every detour was the harness forcing the model out of a repetition,
+  not the model self-correcting — reinforcing the "needs scaffolding" verdict.
+
 ## What's in the repo
 
 | File | Purpose |
@@ -50,8 +79,9 @@ Everything runs against a local OpenAI-compatible endpoint on port **8086**.
 | `test_page.html` | Synthetic login page (username + password + Log In) used as the browser task |
 | `vision_test.js` | Screenshot → Qwen: "list interactive elements as JSON" (pure vision check) |
 | `agent_loop.js` | Closed-loop computer-use agent: screenshot → Qwen action → Playwright executes → structured observation → repeat |
+| `youtube_test.js` | YouTube end-to-end agent: search a song and play the first result, with URL + video-state observations and per-click anti-loop feedback |
 | `desktop_click_test.py` | Opens a real X11 window (RED/BLUE buttons) on display `:1`, screenshots the whole desktop, asks Qwen for the RED button center, synthesizes the click via XTEST |
-| `screenshots/` | Evidence: `shot1.png` (page), `step1/5/10.png` (agent run), `desktop_window_crop.png` (the window Qwen found on the live desktop) |
+| `screenshots/` | Evidence: `shot1.png` (page), `step1/5/10.png` (agent run), `desktop_window_crop.png` (window on the live desktop), `yt_results.png` + `yt_playing.png` (YouTube test) |
 | `package.json` | Node deps (`playwright-core` only; reuses your Playwright browser cache) |
 | `requirements.txt` | Python deps (`python-xlib`, `pillow`) |
 
@@ -80,8 +110,9 @@ Browser agent (Node 18+, `fetch` built-in):
 
 ```bash
 npm install          # installs playwright-core; uses the ms-playwright browser cache
-# edit EXE in agent_loop.js if your chromium path differs
+# edit EXE in agent_loop.js / youtube_test.js if your chromium path differs
 node agent_loop.js   # expect: SUCCESS: true, status "LOGGED IN: alice (pw len 9)"
+node youtube_test.js # expect: SUCCESS: true, video: PLAYING on a /watch URL (needs internet)
 ```
 
 Desktop click (Python 3.10+, X11 display `:1`):
