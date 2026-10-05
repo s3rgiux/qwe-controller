@@ -144,7 +144,16 @@ Two real-world gotchas this test added to the list:
     for the *visible* playing video → only then seek.
 13. **Pre-roll ads vary (0–2.5 min) and are a separate short `<video>`
     (dur<300s).** Wait for a *visible* video with `dur>600s` that is playing
-    before treating "the movie" as started.
+    before treating "the movie" as started. The ad element's `duration` is its
+    max — the ad can end well before it (observed: a 152 s element played only
+    ~30 s).
+14. **When a movie ends, Prime auto-plays the "next" title.** The old movie
+    element is replaced, so any "longest `<video>`" heuristic silently starts
+    tracking the *new* content and a time-based stopper keeps recording 45+
+    min of the wrong title. Fix: `movie_stopper.sh --mark` tags the movie
+    element (`data-qwe-stopwatch`) right after playback starts; stopper and
+    watchdog then track that element by identity and treat "marked element
+    gone" as movie-ended (2 consecutive checks).
 
 ## Prime full workflow — search → play → fullscreen → start → record (runbook)
 
@@ -223,6 +232,38 @@ Earlier 1440p→1080p size savings: net_record 400→352 MB (−12 %), screenrec
 `cr_step*.png` (agent run), `fs_final.png` (fullscreen), `analysis_*/`
 (sampled frames).
 
+### Full-movie run (2 h 24 m, net_record only, 24 fps, 1080p)
+
+Recorded the **entire film** from the first frame (MGM logo) to the last
+credits, single recorder, while the user kept the box. Setup → first frame in
+~20 s; total capture 2 h 46 m; ≈0.5 MB/s at 1080p/24 fps.
+
+```bash
+node prime_final.js                 # play → fullscreen → t=0 (gotchas 8–13)
+./movie_stopper.sh --mark           # tag the movie <video> (gotcha 14)
+DISPLAY=:1 AUDIO_SRC=<sink Chrome plays on> RES=1920x1080 FRAMERATE=24 \
+  OUT_DIR=/media/... ./record.sh &  # x11grab 2560×1440 → scale 1920×1080
+./movie_stopper.sh <dur-90> out.mp4 &   # end-detect: t≈d, paused×2, or element gone
+./movie_watchdog.sh out.mkv <dur> &     # every 10 min: t + file size advancing,
+                                        # nudges play() on a stall
+# after remux: window restore (Phase 4), then
+python3 analyze_rec.py out.mp4 analysis_fullmovie
+# clean cut (lossless, keyframe-aligned): ad ends ~30 s, film = MGM logo → credits
+ffmpeg -ss 34 -i raw.mp4 -t 8718 -c copy -movflags +faststart movie.mp4
+```
+
+| | |
+|---|---|
+| raw capture | 10002 s (2 h 46 m 42 s), 5.24 GB — [30 s ad] + [whole film] + [21 min auto-played next title] |
+| clean cut | **8719 s (2 h 25 m 19 s), 4.65 GB** — MGM logo → final credits |
+| resolution / rate | 1920×1080 (whole 2560×1440 screen in true fullscreen), 23.993 fps (24 fps capture) |
+| video verdict | OK — 333 sampled frames: 0 static, motion mean 43.7, 6 % dark (the film's own B&W/night scenes) |
+| audio verdict | OK — 10000 s decoded, peak −9.0 dBFS, 68 % of 30 s windows > −45 dBFS |
+| notes | after the reboot the default audio sink changed to a USB device — pin `AUDIO_SRC` to the sink Chrome actually plays on (`pactl list short sink-inputs`), or the recording is silent; the player-reported `duration` drifts upward during playback (8725→9000 s), the content ends at the player's own end anyway |
+
+24 fps capture for 24 fps content is the right choice: no duplicate frames,
+smaller file, no temporal aliasing.
+
 ## What's in the repo
 
 | File | Purpose |
@@ -235,6 +276,8 @@ Earlier 1440p→1080p size savings: net_record 400→352 MB (−12 %), screenrec
 | `prime_casino_test.js` | Prime search+select agent: storefront → search "casino royale" → click result → detail page (Phase 1 of the runbook) |
 | `prime_final.js` | Prime playback harness: reload detail → click Play span → wait out ads → 2560×1440 fullscreen → seek t=0 → input pass-through test (Phase 2 of the runbook) |
 | `analyze_rec.py` | Recording verifier: 30 s frame sampling (black/static/motion) + per-30 s audio dBFS → video/audio verdict (Phase 5 of the runbook) |
+| `movie_stopper.sh` | Full-movie end-detector: `--mark` tags the movie `<video>`, then stops ffmpeg + remuxes when the movie ends (t≈d, paused×2, or marked element replaced by auto-played next title) |
+| `movie_watchdog.sh` | Full-movie health watch: every 10 min checks movie time + file size are advancing, nudges `play()` on a stall |
 | `desktop_click_test.py` | Opens a real X11 window (RED/BLUE buttons) on display `:1`, screenshots the whole desktop, asks Qwen for the RED button center, synthesizes the click via XTEST |
 | `debug/` | Superseded Prime playback experiments (start/play/resume/go/finish_fast) kept for the failure-mode record |
 | `screenshots/` | Evidence: `shot1.png` (page), `step1/5/10.png` (agent run), `desktop_window_crop.png` (window on the live desktop), `yt_results.png` + `yt_playing.png` (YouTube), `pv_storefront.png` + `pv_playing.png` (Prime Video) |
