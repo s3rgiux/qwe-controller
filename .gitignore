@@ -9,3 +9,6 @@ desktop_click.png
 /yt_final.png
 /pv_step*.png
 /pv_final.png
+
+# full-desktop screenshots (personal GUI content) — keep local only
+desktop_*.png
