@@ -40,7 +40,7 @@ subtitles, ad-free, per-episode files on `/media/sergio/My Passport`.
 | Ep | raw file | d (s) | gate | ads found | final file | commit |
 |----|----------|-------|------|-----------|------------|--------|
 | 1  | `rec_20261007_021642` (shared w/ E2) | ~4340 actual (d=4641 padded) | en-us ✅ subs off ✅ | head JP pre-roll 0–43 (Machida+SUT) | `fallout_s1e1_540p_24fps.mp4` 1.7G 71:27 ✅ | — |
-| 2  | `rec_20261007_021642` (shared w/ E1) | ~3805 actual (d=4058 padded) | en-us ✅ subs off ✅ | SUPER DRY pre-roll + mid-roll SUT selfie + Diners Club @53:22 | pending | — |
+| 2  | `rec_20261007_021642` (shared w/ E1) | ~3805 actual (d=4058 padded) | en-us ✅ subs off ✅ | SUPER DRY pre-roll + mid-roll SUT selfie + Diners Club @53:22 | `fallout_s1e2_540p_24fps.mp4` 1.6G 61:03 ✅ | — |
 
 **d-padding finding (2026-10-07):** Prime's `<video>.duration` over-reports content
 by ~4–7% (E1: d=4641 vs 4340 actual; E2: d=4058 vs 3805 actual). End-of-episode
