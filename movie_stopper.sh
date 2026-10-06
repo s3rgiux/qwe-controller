@@ -187,8 +187,51 @@ fi
 
 WAIT="${1:?wait_seconds}"; MP4="${2:?mp4_path}"
 
-say "movie stopper armed: wait ${WAIT}s then poll (target: $MP4)"
-sleep "$WAIT"
+# Arm-time-INDEPENDENT wait (2026-10-07 Fallout E1 bug: the old fixed
+# `sleep d-90` assumed arming at t=0. Armed 29 min late, it slept PAST the
+# episode end and never saw the E1->E2 t-reset; the recorder then captured
+# the next episode too). Now: wait until the marked video's t actually
+# reaches d-90, checking every 30 s, and bail immediately on a t-reset or
+# a vanished element (= marked episode already ended). WAIT stays as a
+# hard cap so a stalled clock can't hold the stopper forever.
+say "movie stopper armed: wait until t>=d-90, hard cap ${WAIT}s (target: $MP4)"
+deadline=$(( $(date +%s) + WAIT ))
+prev_wait_t=""
+nulls=0
+while :; do
+  st=$(state)
+  case "$st" in
+    ERR|'')
+      sleep 30 ;;
+    'null')
+      nulls=$((nulls+1))
+      if [[ $nulls -ge 2 ]]; then
+        say "element gone 2 checks in a row during wait — episode ended"
+        stop_ffmpeg; exit 0
+      fi
+      sleep 30 ;;
+    *)
+      nulls=0
+      t=$(echo "$st" | sed -n 's/.*"t":\([0-9.]*\).*/\1/p')
+      d=$(echo "$st" | sed -n 's/.*"d":\([0-9]*\).*/\1/p')
+      if [[ -n "$t" && -n "$d" ]]; then
+        if [[ -n "$prev_wait_t" ]] && awk -v t="$t" -v pt="$prev_wait_t" 'BEGIN{exit !(t < pt - 30)}'; then
+          say "t reset during wait (t=$t after $prev_wait_t) — marked episode ended"
+          stop_ffmpeg; exit 0
+        fi
+        prev_wait_t="$t"
+        if awk -v t="$t" -v d="$d" 'BEGIN{exit !(t >= d-90)}'; then
+          say "t=$t reached d-90 (d=$d) — entering end-poll"
+          break
+        fi
+      fi
+      sleep 30 ;;
+  esac
+  if (( $(date +%s) > deadline )); then
+    say "wait cap (${WAIT}s) reached — entering end-poll"
+    break
+  fi
+done
 
 consec=0
 prev_t=""
