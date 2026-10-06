@@ -83,9 +83,27 @@ stop_ffmpeg() {
   else
     say "no x11grab ffmpeg found (already stopped?)"
   fi
-  for i in $(seq 1 120); do [[ -f "$MP4" ]] && break; sleep 1; done
-  if [[ -f "$MP4" ]]; then say "remux complete: $MP4 ($(du -h "$MP4" | cut -f1))"
-  else say "ERROR: remuxed file not found: $MP4"; fi
+  # let the recorder's ffmpeg fully exit (on INT it flushes the mkv trailer;
+  # the mkv is still being written until it does)
+  if [[ -n "$pid" ]]; then
+    for i in $(seq 1 120); do ps -p "$pid" > /dev/null 2>&1 || break; sleep 1; done
+  fi
+  # then wait for the recorder's remux to actually FINISH: mp4 exists and its
+  # size is stable (2026-10-07: the old version reported "remux complete (13M)"
+  # — the size of the recorder's in-progress remux one second after it started)
+  local prev=-1 cur
+  for i in $(seq 1 360); do
+    [[ -f "$MP4" ]] || { sleep 2; continue; }
+    cur=$(stat -c %s "$MP4" 2>/dev/null || echo 0)
+    if [[ "$cur" -gt 0 && "$cur" == "$prev" ]]; then
+      say "remux complete: $MP4 ($(du -h "$MP4" | cut -f1))"
+      return 0
+    fi
+    prev=$cur
+    sleep 3
+  done
+  say "ERROR: remuxed file not ready: $MP4"
+  return 1
 }
 
 if [[ "${1:-}" == "--mark" ]]; then
