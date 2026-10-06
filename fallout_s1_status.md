@@ -43,6 +43,7 @@ subtitles, ad-free, per-episode files on `/media/sergio/My Passport`.
 | 2  | `rec_20261007_021642` (shared w/ E1) | ~3805 actual (d=4058 padded) | en-us ✅ subs off ✅ | SUPER DRY pre-roll + mid-roll SUT selfie + Diners Club @53:22 | `fallout_s1e2_540p_24fps.mp4` 1.6G 61:03 ✅ | — |
 | 3  | `rec_20261007_053420` (3235 s) | ~3248 actual (d=3419/3533 padded) | en-us ✅ subs off ✅ | **no pre-roll**; 85 s mid-roll @34:38 (iPhone 18 Pro + store + WEAPONS + BIOHAZARD JP film ads, partly DARK = brightness-scan misses the dark halves) + 10 s tail JP ad after credits | `fallout_s1e3_540p_24fps.mp4` 1.5G 52:17 ✅ | — |
 | 4  | `rec_20261007_064444` (2657 s) | ~2665 actual (d=2925/3005 padded) | en-us ✅ subs off ✅ | **no pre-roll**; 3 mid-roll blocks: Hisamitsu 久光製薬 @13:47 (19 s) + keyhole/office-woman @29:00 (63 s) + JP drama「17」@36:55 (32 s, dark dusk stretch before the bright card) + DMM TV JP ad in tail slot @44:12 | `fallout_s1e4_540p_24fps.mp4` 969M 42:13 ✅ | — |
+| 5  | `rec_20261007_073947` (2504 s) | ~2514 actual (d=2720/2800 padded) | en-us ✅ subs off ✅ | **no pre-roll** (dark Vault-33 cold open); 1 ad slot @14:09 (83 s: Abr⁄sus 薄財布 + JTB 旅 + Kao Attack ZERO — vision flagged it as "ad abrus") + keyhole/「Join the Club」/Intel vPRO @35:15 (51 s) + MUFG + KEIRIN 競輪 JP ads in tail slot @41:19 (25 s, after a 1 s credits card) | `fallout_s1e5_540p_24fps.mp4` 928M 38:56 ✅ | — |
 
 **d-padding finding (2026-10-07):** Prime's `<video>.duration` over-reports content
 by ~4–7% (E1: d=4641 vs 4340 actual; E2: d=4058 vs 3805 actual). End-of-episode
