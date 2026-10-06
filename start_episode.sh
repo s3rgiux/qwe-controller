@@ -24,7 +24,8 @@ if ! echo "$OUT" | grep -q "FINAL"; then
   exit 1
 fi
 
-D=$(echo "$OUT" | grep -o '"d":[0-9]*' | tail -1 | cut -d: -f2)
+# max d across all video elements (a hidden hero video can carry d:0)
+D=$(echo "$OUT" | grep -o '"d":[0-9]*' | cut -d: -f2 | sort -n | tail -1)
 if ! [[ "$D" =~ ^[0-9]+$ ]] || (( D < 600 )); then
   echo "[start] FATAL: could not parse a sane duration from FINAL" >&2
   exit 1
