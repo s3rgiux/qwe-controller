@@ -22,8 +22,22 @@ subtitles, ad-free, per-episode files on `/media/sergio/My Passport`.
   `arm_episode.sh <N> <d>` → on stop: `rescan_bright.py --grab` → confirm/trim →
   re-scan → `analyze_rec.py` → deliverable → commit.
 
+## Season map (8 episodes — `grid_readonly.js` scrape, 2026-10-07 04:44)
+
+| # | Title | ASIN |
+|---|-------|------|
+| 1 | The End | `0H65SELFYQNNW2SNLDGEOSFZXJ` |
+| 2 | The Target | `0FJEDT2KQIEGTC61UU1IYRFZRB` |
+| 3 | The Head | `0JBVSYWCTQLOQGTRNV4N670HH8` |
+| 4 | The Ghouls | `0TBFWHTQWLSMFW67KBP9IC4UMU` |
+| 5 | The Past | `0SHVDQZTABJKUJHNBCA8CAECKN` |
+| 6 | The Trap | `0M1X60J5R6U69B3NLNFPUP3AWI` |
+| 7 | The Radio | `0HKWUSAS9VXYJVCSLTTD3HSV3O` |
+| 8 | The Beginning | `0MVNRZ7Q0BIUIV8E85JGJLA22T` |
+
 ## Episodes
 
 | Ep | raw file | d (s) | gate | ads found | final file | commit |
 |----|----------|-------|------|-----------|------------|--------|
-| 1  | `rec_20261007_021642` | 4641 (refined) | en-us ✅ subs off ✅ | pending | pending | — |
+| 1  | `rec_20261007_021642` (shared w/ E2) | 4641 (refined) | en-us ✅ subs off ✅ | pending | pending | — |
+| 2  | `rec_20261007_021642` (shared w/ E1) | 3978 (refined) | en-us ✅ subs off ✅ | pending | pending | — |
