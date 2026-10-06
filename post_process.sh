@@ -63,13 +63,20 @@ def kf_ge(x):
     for k in kfs:
         if k >= x: return k
     return dur
+# keep segments:
+#  - START must be a keyframe (the output stream must open on an I-frame):
+#    kf_ge(ad_end); file head is 0.
+#  - END is EXACT (the next ad's start), not keyframe-snapped: with -c copy
+#    a -t endpoint may land anywhere inside its last GOP (README cut-recipe
+#    pin) — snapping to kf_le would eat up to a GOP of real content before
+#    the ad (Fallout E1: kf_le(4330)=4323 would drop the 4324-4330 end logo).
 segs = []
 prev = 0.0
 for a, b in m:
-    s = kf_le(a)
-    if s > prev + 0.5: segs.append((prev, s))
+    if a - prev > 0.5: segs.append((prev, a))
     prev = max(prev, kf_ge(b))
-if prev < dur - 0.5: segs.append((prev, dur))
+if dur - prev > 0.5: segs.append((prev, dur))
+segs = [(s, e) for s, e in segs if e - s > 0.5]
 with open(sys.argv[1].replace('kfs.txt', 'segments.tsv'), 'w') as f:
     for s, e in segs:
         f.write(f"{s:.3f}\t{e-s:.3f}\n")
@@ -91,16 +98,21 @@ if [[ "$SEGN" -eq 1 ]] && awk -F'\t' '$1 < 1' "$TMP/segments.tsv" | grep -q .; t
   else
     echo "[post] no trim needed"; cp "$FILE" "$OUT"
   fi
+elif [[ "$SEGN" -eq 1 ]]; then
+  # single internal keep segment (e.g. E1 = raw minus head-ad minus
+  # everything after E1) — cut straight to OUT, no concat
+  read -r S T < "$TMP/segments.tsv"
+  echo "[post] single segment cut [$S,$(( S + T )))"
+  ffmpeg -nostdin -v error -y -ss "$S" -i "$FILE" -t "$T" -c copy -movflags +faststart "$OUT"
 else
   echo "[post] cutting + concat $SEGN segments"
   i=0; : > "$TMP/concat.txt"
   while IFS=$'\t' read -r S T; do
     i=$((i+1))
-    if (( i == SEGN )); then
-      ffmpeg -nostdin -v error -y -ss "$S" -i "$FILE" -c copy -movflags +faststart "$TMP/seg$i.mkv"
-    else
-      ffmpeg -nostdin -v error -y -ss "$S" -i "$FILE" -t "$T" -c copy "$TMP/seg$i.mkv"
-    fi
+    # always -t: the plan's T is the exact keep length for EVERY segment
+    # (the old last-segment no-`-t` shortcut was wrong when the keep segment
+    # is internal, i.e. an ad range extends to end-of-file — Fallout E1 case)
+    ffmpeg -nostdin -v error -y -ss "$S" -i "$FILE" -t "$T" -c copy "$TMP/seg$i.mkv"
     echo "file 'seg$i.mkv'" >> "$TMP/concat.txt"
   done < "$TMP/segments.tsv"
   ffmpeg -nostdin -v error -y -f concat -safe 0 -i "$TMP/concat.txt" -c copy -movflags +faststart "$OUT"
