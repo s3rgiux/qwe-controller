@@ -45,12 +45,20 @@ ffmpeg -hide_banner -loglevel warning -stats -f x11grab -thread_queue_size 256 \
   -c:v libx264 -preset veryfast -crf 18 -tune film \
   -vf "scale=1920:1080" -pix_fmt yuv420p -y "$MKV" &
 FFPID=$!
-trap '
-  kill -INT $FFPID 2>/dev/null; wait $FFPID 2>/dev/null
+# REMUX MUST RUN ON BOTH EXIT PATHS (2026-10-06 bug, The Boys S1E1 run 4):
+# the stopper sends INT to the ffmpeg CHILD, not to this script — so the
+# script exits normally (wait returns) with no trap firing. Remuxing only
+# in the trap left a 1.4 GB mkv with no mp4.
+remux() {
+  [[ -f "$MP4" ]] && return 0   # already remuxed
   echo "[record] remuxing to .mp4 (no re-encode)..."
-  ffmpeg -v error -y -i "$MKV" -c copy -movflags +faststart "$MP4" \
-    && rm -f "$MKV" \
-    && echo "[record] done: $MP4 ($(du -h "$MP4" | cut -f1))" \
-    || { echo "[record] REMUX FAILED — keeping $MKV"; }
-' INT TERM
+  if ffmpeg -v error -y -i "$MKV" -c copy -movflags +faststart "$MP4"; then
+    rm -f "$MKV"
+    echo "[record] done: $MP4 ($(du -h "$MP4" | cut -f1))"
+  else
+    echo "[record] REMUX FAILED — keeping $MKV"
+  fi
+}
+trap 'kill -INT $FFPID 2>/dev/null' INT TERM
 wait $FFPID
+remux

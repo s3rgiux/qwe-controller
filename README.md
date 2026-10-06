@@ -466,6 +466,48 @@ GL), same ABR rendition (960×540 for The Boys). The user's session (display
 :1, speakers, all other apps) is completely untouched and can't affect the
 capture in either direction.
 
+### Pilot result — S1E1 delivered
+
+`the_boys_s1e1_540p_24fps.mp4` on the Passport (2026-10-06, run 4 on Xvfb):
+**59:00, from the comic-book cold open to the final "Developed by Eric
+Kripke" credit, no ads**. 540p ABR source in a 1080p24 canvas (honest
+name: 540p). Analyzer: video=OK audio=OK, peak −3.8 dBFS.
+
+Post-processing (all lossless keyframe cuts, concat'd):
+- **Tail**: cut at kf 3609.688 — last credit + black, before the E2
+  auto-play (the E2 pre-roll was a Japanese abrAsus wallet ad; vision #62
+  classified it `ad` the moment it appeared).
+- **Mid-roll 1**: 30 s "AMBIQUE" wallet commercial spliced at ~26:30
+  (raw 1591–1621) — black fades both sides = clean splice, the film
+  paused for it, **no content lost**. Trimmed at kfs 1589.104 /
+  1624.646; the cut lands on the film's own scene change (in-story anime
+  card → street scene).
+- **Mid-roll 2**: 28 s "ECOFLOW" camping/solar commercial at ~42:30 —
+  **missed by the 60 s vision cadence** (it fell between checks) and
+  caught by the mandatory **full-file bright-window re-scan** after
+  trimming (2 s cadence, mean>100, visual confirm of every window).
+  Trimmed at kfs 2529.751 / 2564.876.
+- **Head**: starts ~7 s into the static opening comic art (recording armed
+  right after seek-0) — nothing lost.
+- Final re-scan: every remaining bright window confirmed as film (Vought
+  boardroom, Homelander's glass office, the gallery scene, bright day
+  streets) — **no ads left**.
+
+Lesson baked into the runbook: after any trim, **always** full-file
+re-scan for bright windows before calling a file ad-free; vision alone
+cannot guarantee that.
+
+Intermediate files kept on the Passport: `the_boys_s1e1_540p_24fps_WITHAD.mp4`
+(60:10, tail-trimmed, ads in), `the_boys_s1e1_540p_24fps_midtrim.mp4`
+(59:35, only AMBIQUE removed), raw `boys_s1e1.mp4` (60:55, incl. E2
+pre-roll) and the cancelled-run backup `boys_s1e1_run1948_backup.mp4`.
+
+Extra gotcha found on this run: **the stopper sends INT to the ffmpeg
+child, not to the recording script** — so the recorder must remux on the
+normal exit path (after `wait` returns), not only in an INT/TERM trap
+(S1E1 run 4 left a 1.4 GB mkv without mp4 until remuxed by hand;
+`record_xvfb.sh` now remuxes on both paths).
+
 ### Findings from the pilot run
 
 - Episode grid is fetched from an API and renders **90–120 s** after a fresh
