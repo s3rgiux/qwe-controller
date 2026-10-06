@@ -37,6 +37,12 @@ def main():
     ap.add_argument("--cadence", type=float, default=2.0)
     ap.add_argument("--mean", type=float, default=100.0)
     ap.add_argument("--gap", type=float, default=4.0)
+    ap.add_argument("--min-frames", type=int, default=2,
+                    help="suppress windows with fewer hits (default 2: a single "
+                         "bright frame is usually a film flash, not an ad)")
+    ap.add_argument("--min-frames-bright", type=float, default=130.0,
+                    help="a lone frame at/above this mean still counts "
+                         "(default 130: a very bright single frame is suspicious)")
     ap.add_argument("--width", type=int, default=32)
     ap.add_argument("--height", type=int, default=18)
     a = ap.parse_args()
@@ -78,7 +84,10 @@ def main():
     if cur:
         windows.append(cur)
 
+    shown = 0
     for w in windows:
+        if w["frames"] < a.min_frames and w["max_mean"] < a.min_frames_bright:
+            continue
         out = {
             "start": round(w["start"], 1),
             "end": round(w["end_t"] + a.cadence, 1),
@@ -86,6 +95,7 @@ def main():
             "max_mean": round(w["max_mean"], 1),
         }
         print(json.dumps(out))
+        shown += 1
     print(json.dumps({
         "summary": "scanned",
         "file": a.file,
