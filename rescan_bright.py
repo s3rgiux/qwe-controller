@@ -45,6 +45,9 @@ def main():
                          "(default 130: a very bright single frame is suspicious)")
     ap.add_argument("--width", type=int, default=32)
     ap.add_argument("--height", type=int, default=18)
+    ap.add_argument("--grab", metavar="DIR", default=None,
+                    help="also write 2 full-res frames (start/mid) per kept "
+                         "window to DIR for visual confirmation")
     a = ap.parse_args()
 
     # 1x decode of tiny grayscale frames at cadence; rawvideo = trivial parse
@@ -84,6 +87,7 @@ def main():
     if cur:
         windows.append(cur)
 
+    import os
     shown = 0
     for w in windows:
         if w["frames"] < a.min_frames and w["max_mean"] < a.min_frames_bright:
@@ -94,6 +98,14 @@ def main():
             "frames": w["frames"],
             "max_mean": round(w["max_mean"], 1),
         }
+        if a.grab:
+            os.makedirs(a.grab, exist_ok=True)
+            for tag, t in (("start", w["start"]), ("mid", (w["start"] + w["end_t"]) / 2)):
+                outp = f"{a.grab}/win{shown:02d}_{tag}_{t:.1f}.png"
+                subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error",
+                                "-ss", f"{t}", "-i", a.file, "-frames:v", "1",
+                                "-vf", "scale=480:-2", "-y", outp], check=False)
+                out[f"grab_{tag}"] = outp
         print(json.dumps(out))
         shown += 1
     print(json.dumps({
@@ -103,9 +115,10 @@ def main():
         "cadence": a.cadence,
         "threshold": a.mean,
         "bright_frames": len(hits),
-        "windows": len(windows),
+        "raw_windows": len(windows),
+        "kept_windows": shown,
     }))
-    return 1 if windows else 0
+    return 1 if shown else 0
 
 
 if __name__ == "__main__":
