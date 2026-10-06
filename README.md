@@ -391,6 +391,11 @@ Extending the movie pipeline to series. Built and piloted 2026-10-06 with
 node prime_episode.js https://www.primevideo.com/detail/0I6W2UQ1Y5Z4K4EALW5PGMWNZU 1 1
 #   FINAL: {"videos":[{"d":3664,...}]}  <- that's d
 
+# Phase 1.5 — VERIFY audio language + subtitles (MANDATORY, see section below)
+node player_audio_check.js 2>/dev/null        # exit 0 only if audio=en, subs off
+#   if it fails: do NOT start recording — fix the audio language first
+#   (see "Audio & subtitle verification" section for the Prime JP levers)
+
 # Phase 2 — arm + record  (STANDARD: isolated display + dedicated sink,
 #   see "Isolated display + dedicated audio sink" above)
 ./movie_stopper.sh --mark
@@ -465,6 +470,56 @@ Verified 2026-10-06: **Widevine/DRM playback works under Xvfb** (software
 GL), same ABR rendition (960×540 for The Boys). The user's session (display
 :1, speakers, all other apps) is completely untouched and can't affect the
 capture in either direction.
+
+### Audio & subtitle verification — mandatory before recording (`player_audio_check.js`)
+
+The S1E1 Boys pilot came back with **Japanese audio** (the account/region
+default), so every capture now starts with a verification gate:
+
+```bash
+node player_audio_check.js [cdp_url] [required_audio]   # default en
+# -> single JSON line, exit 0 only if audio language matches AND subtitles off
+```
+
+What it checks (all via CDP on the agent browser):
+- **audio language** — reads the content DASH manifest from the page's
+  resource entries and maps the *fetched* audio segment filenames
+  (`..._audio_N.mp4`) to their `<AdaptationSet lang="...">`. This is the
+  ground truth: the language the player is actually streaming.
+- **subtitles** — the native CC-button state, read through a
+  `DOM.getDocument({pierce:true})` walk (the player controls live in a
+  **closed shadow root**; plain page JS and even open-shadow walks see
+  nothing). A `textTracks` entry in `showing` mode also counts as on.
+
+**Prime JP audio-language facts (measured 2026-10-07, The Boys S1E1):**
+- The web player shows **only Chrome's native media controls** (in a closed
+  shadow root). The native audio-track menu exposes just the *currently
+  active* track — there is no in-player language switcher on web.
+- The track choice is baked in server-side:
+  `GetVodPlaybackResources` returns `defaultAudioTrackId: "ja-jp_dialog_0"`
+  and the selection is also encoded in the encrypted `playbackEnvelope`
+  and the `dm/3$...` manifest URL. **Client-side rewrites do not work**
+  (tested: patching `defaultAudioTrackId` in the response, and stripping
+  every Japanese `<AdaptationSet>` from the delivered MPD — the player
+  still fetched the ja track). Audio is Widevine-encrypted, so
+  downloading a different language track separately is out too.
+- The only account-side lever found: **Settings → Language → Streaming
+  language** (profile `language_of_preference`, mode `custom`, first
+  language = preferred). Saving requires real (trusted) UI events on the
+  checkbox rows + the form POSTs to
+  `www.primevideo.com/api/setProfilePreferences` with a `preferences` JSON
+  field (`language_of_preference_selection` multi + `language_of_preference_mode`
+  single). Whether/when it changes the *player* default (vs. just
+  recommendations, as the page copy says) is unconfirmed — it did not take
+  effect within ~1 h of saving for The Boys.
+- The Boys on Prime JP is additionally served with a **baked 2.34:1
+  letterbox** (all 8 video renditions are 16:9-par ≤960×540 with the
+  black bars in the pixels) — a source property, not a display bug.
+
+If the check fails, options in order of preference: pick the language on a
+device that has a menu (TV app — Prime remembers the last per-title
+selection per profile), wait for the profile preference to propagate, or
+stop and ask the user before recording.
 
 ### Pilot result — S1E1 delivered
 
