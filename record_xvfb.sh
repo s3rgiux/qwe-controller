@@ -25,7 +25,7 @@
 # Usage:  ./record_xvfb.sh            (Ctrl+C / SIGINT stops + remuxes)
 # Env:    DISP (:2.0) SRC (qwe_cap.monitor) RES FRAMERATE OUT_DIR
 set -u
-STAMP="rec_$(date +%Y%m%d_%H%M%S)"
+STAMP="${STAMP:-rec_$(date +%Y%m%d_%H%M%S)}"
 OUT_DIR="${OUT_DIR:-/media/sergio/My Passport}"
 RES="${RES:-1920x1080}"
 FRAMERATE="${FRAMERATE:-24}"
