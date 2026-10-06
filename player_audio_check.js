@@ -73,9 +73,14 @@ function log(...a) { process.stderr.write(a.join(' ') + '\n'); }
   });
   result.audioSegments = [...new Set(segs)];
 
-  const mpdUrl = await page.evaluate(() =>
-    performance.getEntriesByType('resource').map(e => e.name)
-      .find(u => /\.mpd/.test(u) && !/interstitial/.test(u)));
+  const mpdUrl = await page.evaluate(() => {
+    const es = performance.getEntriesByType('resource').map(e => e.name).map(u => u.split('?')[0]);
+    const uuid = (es.find(u => /audio_\d+\.mp4/.test(u) && !/interstitial|avoddash/.test(u)) || '')
+      .split('/').pop();
+    const mpds = [...new Set(es)].filter(u => /\.mpd/.test(u) && !/interstitial/.test(u));
+    // prefer the manifest whose filename shares the segment UUID (failover-safe)
+    return mpds.find(u => uuid && u.includes(uuid.split('_')[0])) || mpds[0] || null;
+  });
 
   if (mpdUrl) {
     const mpd = await page.evaluate(async (u) => (await fetch(u)).text(), mpdUrl);
@@ -84,11 +89,16 @@ function log(...a) { process.stderr.write(a.join(' ') + '\n'); }
     for (const blk of mpd.split('<AdaptationSet').slice(1)) {
       const mm = blk.match(/mimeType="([^"]+)"/);
       if (!mm || mm[1] !== 'audio/mp4') continue;
-      const lang = (blk.match(/\blang="([^"]+)"/) || [])[1] || '?';
-      langs.add(lang);
+      const setLang = (blk.match(/\blang="([^"]+)"/) || [])[1] || '';
       for (const rep of blk.split('<Representation').slice(1)) {
         const base = (rep.match(/<BaseURL>([^<]+)<\/BaseURL>/) || [])[1];
-        if (base) segToLang[base.split('_').pop()] = lang;
+        if (!base) continue;
+        // prefer the rendition id (e.g. audio_en-US_3=128000 -> en-us);
+        // the set-level lang attr can be missing/loose (measured on Fallout)
+        const idm = rep.match(/id="audio_([A-Za-z]+(?:-[A-Za-z]+)?)/);
+        const lang = (idm ? idm[1] : setLang || '?').toLowerCase();
+        langs.add(lang);
+        segToLang[base.split('_').pop().replace('.mp4', '')] = lang;
       }
     }
     result.available = [...langs].sort();
@@ -137,7 +147,10 @@ function log(...a) { process.stderr.write(a.join(' ') + '\n'); }
   await browser.close();
 
   // ---- verdict ------------------------------------------------------------
-  const audioOk = result.audio !== null && result.audio.toLowerCase() === REQUIRED_AUDIO;
+  // compare primary subtag (en-us -> en)
+  const primary = (l) => String(l).toLowerCase().split('-')[0];
+  const audioOk = result.audio !== null &&
+    result.audio.split('+').every(l => primary(l) === primary(REQUIRED_AUDIO));
   const subsOk = result.subtitles !== 'on';
   result.ok = audioOk && subsOk;
   console.log(JSON.stringify(result));
