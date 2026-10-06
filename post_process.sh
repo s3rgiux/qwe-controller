@@ -102,7 +102,9 @@ elif [[ "$SEGN" -eq 1 ]]; then
   # single internal keep segment (e.g. E1 = raw minus head-ad minus
   # everything after E1) — cut straight to OUT, no concat
   read -r S T < "$TMP/segments.tsv"
-  echo "[post] single segment cut [$S,$(( S + T )))"
+  # NOTE: no $((S+T)) here — bash aborts the WHOLE script (not just the
+  # command) on a float arithmetic syntax error inside a compound command
+  echo "[post] single segment cut start=$S len=$T"
   ffmpeg -nostdin -v error -y -ss "$S" -i "$FILE" -t "$T" -c copy -movflags +faststart "$OUT"
 else
   echo "[post] cutting + concat $SEGN segments"
