@@ -1,0 +1,3 @@
+{"i":1,"wall":"23:45:29","t":211.4,"d":7688,"paused":false,"marked":true,"nudge":false,"llm_ms":624,"llm":{"scene":"end_credits","title_text":"Chris Moore","notes":"Co-produced by Chris Moore"}}
+{"i":2,"wall":"23:46:00","t":241.8,"d":7688,"paused":false,"marked":true,"nudge":false,"llm_ms":356,"llm":{"scene":"end_credits","title_text":"EXECUTIVE PRODUCER SU ARMSTRONG","notes":"End credits text overlay"}}
+{"i":3,"wall":"23:46:01","stop":"END CREDITS seen 2 min in a row","ffmpeg_pid":"85370"}

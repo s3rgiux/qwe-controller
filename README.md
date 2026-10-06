@@ -264,6 +264,96 @@ ffmpeg -ss 34 -i raw.mp4 -t 8718 -c copy -movflags +faststart movie.mp4
 24 fps capture for 24 fps content is the right choice: no duplicate frames,
 smaller file, no temporal aliasing.
 
+## Good Will Hunting full-movie run + per-minute vision verification (experimental)
+
+Second full-movie run: **Good Will Hunting** (1998, Miramax) on Prime JP,
+recorded 2026-10-06 08:49–11:00 JST with the **experimental per-minute vision
+verifier** (`vision_watch.js`) added to the standard monitors.
+
+```bash
+node prime_casino_test.js "good will hunting"   # Phase 1 (agent search FAILED this
+                                                #  title — see below — deterministic
+                                                #  DOM search used instead)
+node prime_final.js                              # Phase 2 (play → fullscreen → t=0)
+./movie_stopper.sh --mark
+DISPLAY=:1 AUDIO_SRC=<sink> RES=1920x1080 FRAMERATE=24 OUT_DIR=... ./record.sh &
+./movie_stopper.sh <dur-90> out.mp4 &
+./movie_watchdog.sh out.mkv <dur> &
+node vision_watch.js gwh_vision2.jsonl 129 "good will hunting" &   # NEW: 60 s vision checks
+```
+
+| | |
+|---|---|
+| raw capture | 7822.5 s (2 h 10 m), 5.27 GB — [whole film from the Miramax card, no visible pre-roll] + [~2 min auto-played anime] |
+| mid-movie ad break | **~98 s fullscreen multi-brand break at film ~54 min (file 3261–3359 s): Diners Club Gold → リクナビ NEXT → NTT EAST card** — spliced out of the deliverable |
+| clean cut | **7585.8 s (2 h 06 m 26 s), 5.18 GB** — lossless keyframe splice `[0, 3259.688] + [3364.979, 7690.479]`, Miramax card → final JP credits |
+| cut artifacts | one ~98 s jump cut at film ~54 min: during the ad break the film played *hidden underneath* (its `<video>` clock advanced 1:1 the whole time — verified: Δt 7614.9 s ≈ Δwall 7616 s over the full run), so that window's content was never captured and is unrecoverable |
+| window restore | done — `exitFullscreen()` + paused + normal 1600×900 |
+
+### The vision watch (`vision_watch.js`) — what it is and how it scored
+
+Every 60 s: CDP screenshot of the movie `<video>` rect → 640 px JPEG →
+Qwen3.52B classifies `{black, spinner, ad, studio_logo, title_card, film,
+end_credits, storefront}` + `title_text` + 10-word notes → JSONL
+(`{i, wall(UTC), t, d, paused, marked, nudge, llm_ms, llm}`); stop strikes on
+2 consecutive `end_credits` / `storefront` / wrong-title / late-`ad`, with
+position-aware exceptions (below).
+
+Run 2, the clean dataset (`gwh_vision2.jsonl`, 129 checks over 129 min):
+
+| metric | result |
+|---|---|
+| classification accuracy | **128/128 film frames correct** — 1× `title_card` ("GOOD WILL HUNTING"), 126× `film`, 1× `storefront` (a film *toy-shop scene* mislabeled, single occurrence → no stop) |
+| real ad caught | ✅ the mid-roll break: `ad` at film t=3336, ad copy transcribed ("スマホ1つでサクッとベンリ！") — the **only monitor that saw it** (DOM saw nothing: clock kept running) |
+| model errors / nudges | 0 / 0 — no stalls in 2 h |
+| latency | 321–375 ms per check (640 px JPEG, temp 0, json_object) |
+| content quality | the 2B **names real actors and plots**: "Sean Penn and Robin Williams in a scene", "Robert De Niro smiling", "Bar scene with Matt Damon and Ben Affleck", "Math lecture scene", "prison hallway, Will on phone", "Car driving on a highway" (the last shot) |
+| auto-play swap | **missed by the stop rule**: the anime was labeled generic `film` (no title) — caught by log review + manual kill ~1 min after the swap |
+
+Known biases (documented honestly):
+- **title_text echo**: from ~minute 5 on the model prints "Good Will Hunting" in
+  `title_text` for almost every frame (the expected title is in the prompt).
+  Use `notes` for content truth, never `title_text`.
+- **live-action vs anime is unreliable** at 640 px (particle field and a medical
+  monitor both read `live_action` when asked directly); the *scene enum* is more
+  stable than free-form live/anime judgment.
+- Run 1's false stop: GWH's ~4 min **opening credit roll** was correctly
+  classified `end_credits` by the model and correctly killed ffmpeg by the
+  naive 2-strike rule. Fix: position-aware adjustment *before* strike counting —
+  `end_credits` with `t < 0.25·d` → `opening_credits` (no strike); `ad` with
+  `t < 600` → `preroll_ad` (no strike).
+
+**Verdict:** the vision watch is an excellent *verifier and log* — it sees what
+the DOM cannot (mid-roll ads, content identity, "is this still our movie") at
+~0.35 s cost per minute — but it is **not a reliable stopper**: an
+auto-played *other* title with no visible title reads as generic `film`. Keep
+the DOM stopper primary (now with the t-reset rule below).
+
+New gotchas from this run:
+
+15. **Prime JP inserts fullscreen mid-roll ad breaks inside films** (~98 s
+    multi-brand break observed at the 54-min mark). The film's `<video>` clock
+    keeps advancing 1:1 *under* the break, so DOM stall/end detectors see
+    nothing — but the break replaces the film's pixels for that window (lost
+    from any capture). Trim ad breaks by frame-probing the tail/head of the raw
+    file and splicing at keyframes; the vision watch is the only monitor that
+    flagged the break live.
+16. **On auto-play swap the player often reuses the SAME `<video>` element.**
+    The stopper's `data-qwe-stopwatch` mark survives, `t` resets (7656→40),
+    `d` changes (7915→1422) — "element gone" and "t≥d−30" both miss it
+    (content ends *before* the drifted `d`). Stop rule added:
+    **t reset** (`t < prev_t − 30`) ⇒ content swap ⇒ stop.
+17. **Agent search fails on some Prime JP titles even when it worked on others.**
+    "good will hunting" → 14-step loop clicking the top-left corner, never the
+    top-right search icon; the `/search?keywords=` URL deep link redirects to
+    home (JS-driven). Deterministic DOM search is the reliable path:
+    `button[aria-label="Search Prime Video"]` → fill `input[placeholder="Search"]`
+    → Enter → first result on `/search?ie=UTF8&ref_=atv_nb_sug&phrase=…`.
+    Keep the agent for Phase-1-style tasks; use the DOM harness for search.
+18. **Position-aware credit phases**: films can open with a multi-minute credit
+    roll (GWH) — classify `end_credits` at `t < 0.25·d` as `opening_credits`
+    before counting stop strikes, or a correct classification kills a healthy run.
+
 ## What's in the repo
 
 | File | Purpose |
@@ -276,7 +366,10 @@ smaller file, no temporal aliasing.
 | `prime_casino_test.js` | Prime search+select agent: storefront → search "casino royale" → click result → detail page (Phase 1 of the runbook) |
 | `prime_final.js` | Prime playback harness: reload detail → click Play span → wait out ads → 2560×1440 fullscreen → seek t=0 → input pass-through test (Phase 2 of the runbook) |
 | `analyze_rec.py` | Recording verifier: 30 s frame sampling (black/static/motion) + per-30 s audio dBFS → video/audio verdict (Phase 5 of the runbook) |
-| `movie_stopper.sh` | Full-movie end-detector: `--mark` tags the movie `<video>`, then stops ffmpeg + remuxes when the movie ends (t≈d, paused×2, or marked element replaced by auto-played next title) |
+| `movie_stopper.sh` | Full-movie end-detector: `--mark` tags the movie `<video>`, then stops ffmpeg + remuxes when the movie ends (t≈d, paused×2, marked element gone, **or t-reset** — same element reused for the auto-played next title) |
+| `vision_watch.js` | Per-minute vision verifier: CDP screenshot of the movie `<video>` → Qwen scene classification + notes → JSONL; stop strikes (2-strike) with position-aware opening-credits/preroll exceptions (GWH run 2) |
+| `gwh_vision.jsonl` | Vision log, GWH run 1 (3 clip-rect errors + the opening-credits false stop — kept as the failure record) |
+| `gwh_vision2.jsonl` | Vision log, GWH run 2 — the clean 129-check dataset (128/128 film frames, mid-roll ad caught, auto-play swap labeled `film`) |
 | `movie_watchdog.sh` | Full-movie health watch: every 10 min checks movie time + file size are advancing, nudges `play()` on a stall |
 | `desktop_click_test.py` | Opens a real X11 window (RED/BLUE buttons) on display `:1`, screenshots the whole desktop, asks Qwen for the RED button center, synthesizes the click via XTEST |
 | `debug/` | Superseded Prime playback experiments (start/play/resume/go/finish_fast) kept for the failure-mode record |

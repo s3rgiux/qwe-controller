@@ -8,13 +8,18 @@ const { chromium } = require('playwright-core');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const t0 = Date.now();
 function el(...parts) { console.log('  [' + ((Date.now() - t0) / 1000).toFixed(1) + 's]', ...parts); }
-const DETAIL = 'https://www.primevideo.com/detail/0LAX0XFANPXMFOTVAFV5H0LD1H';
+// detail URL: argv[2], else the current page's URL if already a detail page,
+// else the original Casino Royale page.
+let DETAIL = process.argv[2];
 
 (async () => {
   const b = await chromium.connectOverCDP('http://127.0.0.1:9333');
   const ctx = b.contexts()[0];
   const page = ctx.pages().find(p => p.url().includes('primevideo')) || ctx.pages()[0];
   await page.bringToFront();
+  if (!DETAIL) DETAIL = /\/detail\/[A-Z0-9]+/.test(page.url()) ? page.url()
+    : 'https://www.primevideo.com/detail/0LAX0XFANPXMFOTVAFV5H0LD1H';
+  el('detail URL:', DETAIL);
 
   const vids = () => page.evaluate(() => [...document.querySelectorAll('video')].map(v => {
     const r = v.getBoundingClientRect();

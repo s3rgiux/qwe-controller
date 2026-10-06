@@ -13,6 +13,8 @@
 #     -> end
 #   - marked element GONE (player swapped in auto-played next content) -> end,
 #     after 2 consecutive checks
+#   - t RESET (t jumps backwards >30s while the marked element survives —
+#     Prime often reuses the same <video> for the auto-played next title) -> end
 #   - still playing after 45 min of polls -> force stop (safety)
 #
 # Why --mark: when a movie ends, Prime auto-plays the "next" title, so
@@ -76,6 +78,7 @@ say "movie stopper armed: wait ${WAIT}s then poll (target: $MP4)"
 sleep "$WAIT"
 
 consec=0
+prev_t=""
 for i in $(seq 1 45); do
   st=$(state)
   say "poll $i: state=$st"
@@ -100,6 +103,16 @@ for i in $(seq 1 45); do
         sleep 60; continue
       fi
       consec=0
+      # t-RESET: when the movie ends Prime auto-plays the next title and often
+      # REUSES THE SAME <video> ELEMENT — the mark survives, t just jumps
+      # backwards (e.g. 7656 -> 40). No other rule catches this. (GWH run 2,
+      # 2026-10-06: anime auto-played on the marked element, stopper would
+      # have kept polling 45 more min.)
+      if [[ -n "$prev_t" ]] && awk -v t="$t" -v pt="$prev_t" 'BEGIN{exit !(t < pt - 30)}'; then
+        say "t reset ($prev_t -> $t): player swapped in next content on the same element — movie ended"
+        stop_ffmpeg; exit 0
+      fi
+      prev_t="$t"
       if awk -v t="$t" -v d="$d" 'BEGIN{exit !(t >= d-30)}'; then
         say "t=$t within 30s of end (d=$d)"; stop_ffmpeg; exit 0
       fi

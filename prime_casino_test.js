@@ -1,5 +1,6 @@
 /*
- * Qwen3.5-2B agent — Prime Video: search "casino royale" and play it.
+ * Qwen3.5-2B agent — Prime Video: search a movie title and open its detail page.
+ * Usage: node prime_casino_test.js "movie title"   (default: "casino royale")
  * Connects over CDP to the user's real (detached) Chrome.
  */
 const { chromium } = require('playwright-core');
@@ -11,6 +12,11 @@ const MODEL = 'Qwen3.52B';
 const CDP = 'http://127.0.0.1:9333';
 const MAX_STEPS = 14;
 const POST_ACTION_WAIT_MS = 3000;
+
+const TITLE = (process.argv[2] || 'casino royale').trim();
+const PREFIX = TITLE.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 12);
+const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const TITLE_RE = new RegExp(esc(TITLE.trim()), 'i');
 
 async function askLLM(messages, maxTokens = 300) {
   const t0 = Date.now();
@@ -53,7 +59,7 @@ function extractAction(obj) {
 }
 
 const SYSTEM = `You are a computer-use agent controlling a real browser on Amazon Prime Video.
-Task: search for the movie "Casino Royale" and start playing it.
+Task: search for the movie "${TITLE}" and open its detail page.
 Reply format, ONLY JSON, no prose. EVERY reply MUST contain an "action" object — a plan-only reply is INVALID.
 Actions (one per reply):
 - {"action":"click","x":<int>,"y":<int>} click ONE point; x,y single integers, normalized 0-1000 image coordinates (0,0 top-left; 1000,1000 bottom-right). Never arrays.
@@ -62,9 +68,10 @@ Actions (one per reply):
 - {"action":"done"}
 Useful knowledge:
 - The search is the magnifier (lens) icon in the TOP-RIGHT corner of the Prime Video header, left of the grid/bookmark/profile icons. Click it to open the search field.
-- After typing "casino royale" press Enter (or click the search arrow).
-- On the results page, click the movie's POSTER/cover image or its TITLE to open the detail page, then click the big "Play" / "Watch now" button.
-- If a "Continue watching" or hero banner shows a different movie, ignore it — you must search for Casino Royale.
+- After typing the title press Enter (or click the search arrow).
+- On the results page, click the movie's POSTER/cover image or its TITLE to open the detail page (stop there — do NOT press Play; the harness plays it).
+- If a "Continue watching" or hero banner shows a different movie, ignore it — you must search for "${TITLE}".
+- If several results look similar, pick the one whose title text most closely matches "${TITLE}" (the correct movie/series, not a show or a different release).
 - NEVER repeat a click that did not change the page.`;
 
 async function observe(page) {
@@ -82,7 +89,7 @@ async function observe(page) {
 }
 
 (async () => {
-  const task = 'Search Prime Video for the movie "Casino Royale" and play it.';
+  const task = `Search Prime Video for the movie "${TITLE}" and open its detail page.`;
   const browser = await chromium.connectOverCDP(CDP);
   const context = browser.contexts()[0];
   let page = context.pages().find(p => p.url().includes('primevideo')) || context.pages()[0];
@@ -99,7 +106,7 @@ async function observe(page) {
   const actionLog = [];
   for (let step = 1; step <= MAX_STEPS; step++) {
     const png = await page.screenshot();
-    fs.writeFileSync(path.join(__dirname, `cr_step${step}.png`), png);
+    fs.writeFileSync(path.join(__dirname, `${PREFIX}_step${step}.png`), png);
     history[history.length - 1].content.push({ type: 'image_url', image_url: { url: 'data:image/png;base64,' + png.toString('base64') } });
 
     const raw = await askLLM([{ role: 'system', content: SYSTEM }, ...history]);
@@ -151,7 +158,9 @@ async function observe(page) {
 
     const onDetail = /\/detail\/[A-Z0-9]+/.test(obs.url);
     const playingLong = obs.video.startsWith('PLAYING') && /dur=[1-9]\d{2,}/.test(obs.video);
-    if (playingLong && (onDetail || /casino/i.test(obs.title))) { success = true; break; }
+    // success = we reached THIS title's detail page (play is the harness's job)
+    if (onDetail && TITLE_RE.test(obs.title)) { success = true; break; }
+    if (playingLong && (onDetail || TITLE_RE.test(obs.title))) { success = true; break; }
 
     if (act.action === 'click' && page.url() === urlBefore && !feedback) {
       feedback = ' WARNING: your click did NOT change the page (same URL). Click a different element. Do not repeat the same point.';
@@ -185,6 +194,6 @@ async function observe(page) {
   console.log(`title:  ${obs.title}`);
   console.log(`video:  ${obs.video}`);
   console.log(`SUCCESS: ${success}`);
-  await page.screenshot().then(b => fs.writeFileSync(path.join(__dirname, 'cr_final.png'), b));
+  await page.screenshot().then(b => fs.writeFileSync(path.join(__dirname, `${PREFIX}_final.png`), b));
   console.log('Browser LEFT OPEN.');
 })().catch(e => { console.error('FAIL:', e); process.exit(1); });
