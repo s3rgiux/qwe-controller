@@ -39,5 +39,18 @@ subtitles, ad-free, per-episode files on `/media/sergio/My Passport`.
 
 | Ep | raw file | d (s) | gate | ads found | final file | commit |
 |----|----------|-------|------|-----------|------------|--------|
-| 1  | `rec_20261007_021642` (shared w/ E2) | 4641 (refined) | en-us ✅ subs off ✅ | pending | pending | — |
-| 2  | `rec_20261007_021642` (shared w/ E1) | 3978 (refined) | en-us ✅ subs off ✅ | pending | pending | — |
+| 1  | `rec_20261007_021642` (shared w/ E2) | ~4340 actual (d=4641 padded) | en-us ✅ subs off ✅ | head JP pre-roll 0–43 (Machida+SUT) | `fallout_s1e1_540p_24fps.mp4` 1.7G 71:27 ✅ | — |
+| 2  | `rec_20261007_021642` (shared w/ E1) | ~3805 actual (d=4058 padded) | en-us ✅ subs off ✅ | SUPER DRY pre-roll + mid-roll SUT selfie + Diners Club @53:22 | pending | — |
+
+**d-padding finding (2026-10-07):** Prime's `<video>.duration` over-reports content
+by ~4–7% (E1: d=4641 vs 4340 actual; E2: d=4058 vs 3805 actual). End-of-episode
+detection must rely on the t-reset/element-swap signal (stopper does), NOT
+t≥d−30 (which would fire minutes after the content is already gone… or never,
+since t plateaus below d−30).
+
+**Ads on this account/territory (Prime JP):** JP commercials spliced into the
+stream — pre-rolls before each episode (Machida 救急, SUT 誕生, SUPER DRY),
+mid-rolls (SUT selfie, Diners Club ゴールド). Identifiable by QR tracking
+codes (CS…) in corners, JP text, bright commercial framing. Fallout shows are
+full of genuinely bright scenes (desert/sky) — every bright window must be
+visually confirmed (contact sheets of start+mid frames) before trimming.
