@@ -354,6 +354,132 @@ New gotchas from this run:
     roll (GWH) — classify `end_credits` at `t < 0.25·d` as `opening_credits`
     before counting stop strikes, or a correct classification kills a healthy run.
 
+## Series workflow ("chapters") — The Boys S1 pilot
+
+Extending the movie pipeline to series. Built and piloted 2026-10-06 with
+**The Boys S1E1 "The Namesake"** (61:04, d=3664s).
+
+### What makes a series different from a movie
+
+1. The detail page is a **season page** with a lazy episode grid; the hero
+   button resumes *whatever the account last watched* ("Resume S1 E2"), not
+   episode 1 — so the episode must be selected explicitly.
+2. Each episode has its **own detail ASIN**: the grid's hidden
+   `[data-testid="episodes-playbutton"]` anchor always carries
+   `href="/detail/<EP-ASIN>?autoplay=1&t=0"` in the DOM (even while the
+   button itself is a zero-rect hover element). Navigating to it starts
+   exactly that episode from 0 — **no clicks, no ambiguity**.
+3. Episode end → **auto-play next episode** (same t-reset mechanism as the
+   movie→anime swap). For a season, t-reset is a *boundary*, not a stop.
+
+### The three new pieces
+
+| Piece | Role |
+|---|---|
+| `prime_episode.js <season-detail-url> [season] [episode]` | Deterministic episode start: verify `dp-season-selector` == "Season N", read the Nth card's play-link href, goto it (auto-play from 0), then the proven fullscreen/seek-0/input-test pipeline |
+| `movie_stopper.sh --series <boundaries.jsonl> <expected_eps> <wait> <mp4>` | Chapters mode: t-reset ⇒ append `{i,wall,epoch,prev_t,t,d}` boundary and KEEP recording; mid-season stall ⇒ nudge (`play()` / click a play-next control, player-subtree only, ≤3×); stop after `expected_eps` boundaries (or player gone / 6 h) |
+| `split_chapters.py <raw> <boundaries.jsonl> --final-t T [--names s1e1,...]` | Lossless keyframe split of the raw season capture into per-episode files. Boundary file-time ≈ `prev_t` (player t of the last frame of episode i — film plays 1:1 with the file clock, GWH-verified drift ~1 s/2 h) |
+
+### Runbook
+
+```bash
+# Phase 0 — find the series (deterministic DOM search; agent search unreliable, gotcha 17)
+#   The Boys S1 = https://www.primevideo.com/detail/0I6W2UQ1Y5Z4K4EALW5PGMWNZU
+#   (search "the boys" -> first result; each season has its own ASIN, S2..S5)
+
+# Phase 1 — start the episode (deep link auto-plays from 0)
+node prime_episode.js https://www.primevideo.com/detail/0I6W2UQ1Y5Z4K4EALW5PGMWNZU 1 1
+#   FINAL: {"videos":[{"d":3664,...}]}  <- that's d
+
+# Phase 2 — arm + record  (STANDARD: isolated display + dedicated sink,
+#   see "Isolated display + dedicated audio sink" above)
+./movie_stopper.sh --mark
+OUT_DIR=<drive> ./record_xvfb.sh &                          # :2.0 + qwe_cap.monitor
+./movie_stopper.sh <d-90> <raw>.mp4 &                       # single-episode stop
+#  OR: ./movie_stopper.sh --series s1_boundaries.jsonl 8 <d-90> <raw>.mp4 &
+./movie_watchdog.sh <raw>.mkv <d> &
+node vision_watch.js boys_s1e1_vision.jsonl <minutes> "the boys" &
+
+# Phase 3 — after the season run: split into chapters
+python3 split_chapters.py <raw>.mkv s1_boundaries.jsonl --final-t <last-end-t> \
+    --out-dir chapters --names s1e1,s1e2,...,s1e8
+# then the usual per-chapter trim (head/tail keyframe probe) + analyze_rec.py
+```
+
+### Cut-recipe pin (lossless keyframe cuts, measured 2026-10-06)
+
+- **input `-ss` without `-avoid_negative_ts`** = exact keyframe start. With
+  `-avoid_negative_ts make_zero` the cut silently starts at the *previous*
+  keyframe (measured 9 s early on a 10-s-GOP file).
+- **`-t` endpoint must fall inside the segment's own last GOP**: `-c copy`
+  then emits the whole GOP, so a segment written as
+  `[kf_k, kf_{k+1} − 0.1)` ends *exactly* at `kf_{k+1}` — the next segment's
+  start. No duplicated or missing frames at chapter boundaries
+  (verified: chapter 1 last pkt 149.646 → chapter 2 first pkt = keyframe 0.000).
+- Output-side `-ss` with `-c copy` starts at the NEXT keyframe — don't use it.
+
+### Isolated display + dedicated audio sink — the standard mode
+
+Long captures must NOT use the user's real display or audio. Two measured
+failure modes (2026-10-06 S1E1 pilot):
+
+1. **Visual pollution** — `x11grab` captures the *whole X display*. On the
+   real display (:1) the user came back to the machine at ~42:30 and their
+   windows (terminals, the DSH GUI) covered the player: the last ~18 min of
+   `rec_20261006_182012.mp4` (kept on the Passport as the failure record)
+   are desktop, not content. The video element kept playing in the DOM
+   (stopper saw `t=3571` still "playing" while the screen showed the
+   desktop), so **no monitor can detect this** — it's only visible in the
+   frames.
+2. **Audio pollution + leakage** — capturing from a shared hardware-sink
+   monitor records every other app's sound (music, scrcpy, notifications),
+   and the episode audio plays out of the user's speakers with no screen to
+   go with it (the 19:48 run's E2 kept "playing" audibly for an hour after
+   the capture was cancelled — the reason the run was aborted).
+
+**Standard mode (always do this):**
+
+```bash
+# 1) isolated virtual display
+Xvfb :2 -screen 0 2560x1440x24 -ac +extension GLX +render -nolisten tcp &
+# 2) dedicated capture sink (Chrome's audio goes ONLY here:
+#    clean audio in the file, silence on the user's speakers)
+pactl load-module module-null-sink sink_name=qwe_cap
+# 3) agent Chrome on :2 (CDP still 127.0.0.1:9333 -> all harness scripts
+#    work unchanged); kill any :1 agent instance BY PROFILE first
+#    (pids of *chrome-pv-agent* — never `pkill chrome`, the user's own
+#    Chrome shares the binary name)
+DISPLAY=:2 google-chrome-stable --user-data-dir=~/.config/chrome-pv-agent \
+  --remote-debugging-port=9333 --no-first-run --window-size=2560,1440 \
+  --window-position=0,0 https://www.primevideo.com &
+# 4) route ONLY Chrome's sink-input into qwe_cap. Identify it via
+#    `pactl list short clients` (find the "chrome" client, then its input
+#    id in `pactl list short sink-inputs`) — NEVER move inputs of other
+#    apps (the user runs scrcpy etc. on the same Pulse session)
+pactl move-sink-input <chrome-input> qwe_cap
+# 5) record (isolated display + dedicated sink, remuxes on Ctrl+C)
+./record_xvfb.sh    # DISP=:2.0 SRC=qwe_cap.monitor RES=1920x1080 FRAMERATE=24
+```
+
+Verified 2026-10-06: **Widevine/DRM playback works under Xvfb** (software
+GL), same ABR rendition (960×540 for The Boys). The user's session (display
+:1, speakers, all other apps) is completely untouched and can't affect the
+capture in either direction.
+
+### Findings from the pilot run
+
+- Episode grid is fetched from an API and renders **90–120 s** after a fresh
+  page load (Prime throttles rapid reloads) — `prime_episode.js` reuses an
+  already-loaded grid and waits up to 150 s otherwise.
+- The per-card play button is a zero-rect hover element; the **href deep link
+  is the reliable trigger** (packshot click also works, tested).
+- **No quality selector** in the Prime web player (⋮ menu = playback speed +
+  picture-in-picture only) — quality is pure ABR. This run served
+  **960×540** for the whole episode (GWH/CR got 1080p): quality is
+  connection/account-dependent; document `videoWidth` per run.
+- The 2B vision watch reads the series title in-episode ("The Boys" in
+  title_text from ~minute 8) — 330–370 ms per check, clean `film` all the way.
+
 ## What's in the repo
 
 | File | Purpose |
@@ -370,6 +496,10 @@ New gotchas from this run:
 | `vision_watch.js` | Per-minute vision verifier: CDP screenshot of the movie `<video>` → Qwen scene classification + notes → JSONL; stop strikes (2-strike) with position-aware opening-credits/preroll exceptions (GWH run 2) |
 | `gwh_vision.jsonl` | Vision log, GWH run 1 (3 clip-rect errors + the opening-credits false stop — kept as the failure record) |
 | `gwh_vision2.jsonl` | Vision log, GWH run 2 — the clean 129-check dataset (128/128 film frames, mid-roll ad caught, auto-play swap labeled `film`) |
+| `boys_s1e1_vision{,2,3}.jsonl` | The Boys S1E1 vision logs: run 1 (real display, aborted by user), run 2 (real display, tail contaminated by user's windows — the failure record), run 3 (first Xvfb run) |
+| `prime_episode.js` | Series episode start: verify season selector → read the Nth episode card's hidden play-link href (`/detail/<EP-ASIN>?autoplay=1&t=0`) → goto → fullscreen/seek-0 pipeline (The Boys S1 pilot) |
+| `record_xvfb.sh` | Standard-mode capture: x11grab on isolated display (:2.0) + audio from dedicated null-sink monitor (qwe_cap) → 1080p24 mkv, remuxes to mp4 on stop; sanity-checks the sink exists before starting |
+| `split_chapters.py` | Lossless keyframe split of a raw season capture into per-episode files from the stopper's boundary JSONL (boundary file-time ≈ `prev_t`) |
 | `movie_watchdog.sh` | Full-movie health watch: every 10 min checks movie time + file size are advancing, nudges `play()` on a stall |
 | `desktop_click_test.py` | Opens a real X11 window (RED/BLUE buttons) on display `:1`, screenshots the whole desktop, asks Qwen for the RED button center, synthesizes the click via XTEST |
 | `debug/` | Superseded Prime playback experiments (start/play/resume/go/finish_fast) kept for the failure-mode record |

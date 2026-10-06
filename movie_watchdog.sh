@@ -7,32 +7,38 @@ MKV="${1:?path to the .mkv}"; DURATION="${2:?expected movie duration s}"
 CHECK_INTERVAL="${CHECK_INTERVAL:-600}"
 say() { echo "[watchdog] $(date '+%F %T') $*" >&2; }
 
+# NOTE: the node script must be single-quoted (like movie_stopper.sh's
+# NODE_STATE). An earlier double-quoted version let bash eat the backticks in
+# a comment and the double quotes in the selector, so every check returned
+# garbage (2026-10-06 The Boys run: 3 consecutive false ERR cycles).
+NODE_CHECK='
+const { chromium } = require("playwright-core");
+(async () => {
+  const b = await chromium.connectOverCDP("http://127.0.0.1:9333");
+  const ctx = b.contexts()[0];
+  const page = ctx.pages().find(p => p.url().includes("primevideo")) || ctx.pages()[0];
+  const r = await page.evaluate(() => {
+    // prefer the movie element tagged by the stopper mark so the watchdog
+    // keeps tracking the right video when Prime auto-plays next
+    const movies = [...document.querySelectorAll("video")].filter(x => x.duration > 600);
+    const m = document.querySelector("video[data-qwe-stopwatch=\"1\"]") ||
+              movies.sort((a,c) => c.duration - a.duration)[0];
+    if (!m) return null;
+    if (m.paused && m.currentTime < m.duration - 30) m.play();   // nudge on sight of a stall
+    return { p: m.paused, t: +m.currentTime.toFixed(1), d: +m.duration.toFixed(0) };
+  });
+  console.log(JSON.stringify(r));
+  process.exit(0);
+})().catch(() => { console.log("ERR"); process.exit(1); });
+'
+
 prev_t=0; prev_size=0; stalls=0
 last_t=$(date +%s)
 end=$(( $(date +%s) + DURATION + 300 ))
 
 while [[ $(date +%s) -lt $end ]]; do
   sleep "$CHECK_INTERVAL"
-  out=$(timeout 40 node -e "
-  const { chromium } = require('playwright-core');
-  (async () => {
-    const b = await chromium.connectOverCDP('http://127.0.0.1:9333');
-    const ctx = b.contexts()[0];
-    const page = ctx.pages().find(p => p.url().includes('primevideo')) || ctx.pages()[0];
-    const r = await page.evaluate(() => {
-      // prefer the movie element tagged by `movie_stopper.sh --mark` so the
-      // watchdog keeps tracking the right video when Prime auto-plays next
-      const movies = [...document.querySelectorAll('video')].filter(x => x.duration > 600);
-      const m = document.querySelector('video[data-qwe-stopwatch="1"]') ||
-                movies.sort((a,c) => c.duration - a.duration)[0];
-      if (!m) return null;
-      if (m.paused && m.currentTime < m.duration - 30) m.play();   // nudge on sight of a stall
-      return { p: m.paused, t: +m.currentTime.toFixed(1), d: +m.duration.toFixed(0) };
-    });
-    console.log(JSON.stringify(r));
-    process.exit(0);
-  })().catch(() => { console.log('ERR'); process.exit(1); });
-" 2>/dev/null)
+  out=$(timeout 40 node -e "$NODE_CHECK" 2>/dev/null)
   size=$(stat -c %s "$MKV" 2>/dev/null || echo 0)
   t=$(echo "$out" | sed -n 's/.*"t":\([0-9.]*\).*/\1/p')
   d=$(echo "$out" | sed -n 's/.*"d":\([0-9]*\).*/\1/p')

@@ -43,21 +43,35 @@ const { chromium } = require("playwright-core");
     const marked = document.querySelector("video[data-qwe-stopwatch=\"1\"]");
     const m = marked || movies.sort((a,c) => c.duration - a.duration)[0];
     if (!m) return null;
+    if (mode === "nudge") {
+      // series mode: episode ended but auto-play did not advance. Try to
+      // resume: play the movie video, else click a visible Play/Resume/Next
+      // control (player interstitial play-next-episode prompt).
+      const did = [];
+      if (m && m.paused) { try { m.play(); did.push("play()"); } catch (e) {} }
+      // ONLY inside the player overlay — a DOM click() ignores visual
+      // layering and can hit hero buttons behind the player (2026-10-06
+      // smoke test clicked a hidden "Resume S1 E2" span; harmless there but
+      // would skip an episode in series mode).
+      for (const e of document.querySelectorAll("#dv-web-player span, #dv-web-player button, #dv-web-player [role=button]")) {
+        const t = (e.textContent || "").trim();
+        if (t.length > 25) continue;
+        const tl = t.toLowerCase();
+        if (!["play", "resume", "watch", "next", "play next", "play next episode", "再生", "つづきを見る", "次へ"].includes(tl) &&
+            !/play|resume|next|再生|次へ/.test(tl)) continue;
+        const r = e.getBoundingClientRect();
+        if (r.width > 25 && r.width < 400 && r.height > 18 && r.height < 100 && r.y > 100) {
+          e.click(); did.push("clicked:" + t); break;
+        }
+      }
+      return did.join(",") || "nothing to nudge";
+    }
     return { marked: !!marked, p: m.paused, t: +m.currentTime.toFixed(1), d: +m.duration.toFixed(0) };
   }, mode);
   console.log(JSON.stringify(r));
   process.exit(0);
 })().catch(() => { console.log("ERR"); process.exit(1); });
 '
-
-if [[ "${1:-}" == "--mark" ]]; then
-  out=$(timeout 30 node -e "$NODE_STATE" mark 2>/dev/null)
-  say "mark: $out"
-  [[ "$out" == *"marked:"* ]] || exit 1
-  exit 0
-fi
-
-WAIT="${1:?wait_seconds}"; MP4="${2:?mp4_path}"
 
 state() { timeout 30 node -e "$NODE_STATE" poll 2>/dev/null; }
 
@@ -73,6 +87,105 @@ stop_ffmpeg() {
   if [[ -f "$MP4" ]]; then say "remux complete: $MP4 ($(du -h "$MP4" | cut -f1))"
   else say "ERROR: remuxed file not found: $MP4"; fi
 }
+
+if [[ "${1:-}" == "--mark" ]]; then
+  out=$(timeout 30 node -e "$NODE_STATE" mark 2>/dev/null)
+  say "mark: $out"
+  [[ "$out" == *"marked:"* ]] || exit 1
+  exit 0
+fi
+
+# ---- SERIES / CHAPTERS MODE -------------------------------------------------
+# Records a whole season in ONE capture; episode ends are BOUNDARIES, not stops.
+#
+#   movie_stopper.sh --series <boundary.jsonl> <expected_eps> <wait_seconds> <mp4_path>
+#
+#   wait_seconds     sleep before polling starts (~ last_episode_duration - 90;
+#                    episode 1 is assumed to already be playing and marked)
+#
+# Boundary = t-RESET (t jumps backwards >30s while the marked element survives:
+# Prime reuses the same <video> for the auto-played next episode). Each boundary
+# appends {i, wall, epoch, prev_t, t, d, marked} to boundary.jsonl.
+#
+# Stop conditions:
+#   - n-th boundary observed (n == expected_eps) => season done
+#   - marked element gone / player gone 2 checks in a row
+#   - t>=d-30 or paused x2 on the LAST expected episode (auto-play off)
+#   - mid-season stall (t>=d-30 or paused x2 before the last episode):
+#     nudge (play()/click next) up to 3 times, then give up and stop
+#   - 6 h of polls => force stop (safety)
+if [[ "${1:-}" == "--series" ]]; then
+  BOUNDARY="${2:?boundary.jsonl}"; EXPECTED="${3:?expected_eps}"
+  WAIT="${4:?wait_seconds}"; MP4="${5:?mp4_path}"
+  : > "$BOUNDARY"
+  say "SERIES mode: $EXPECTED episodes, boundary log: $BOUNDARY, wait ${WAIT}s"
+  sleep "$WAIT"
+
+  n=0; prev_t=""; consec=0; nudges=0; stalled=0
+  for i in $(seq 1 360); do   # 360 x 60s = 6 h safety cap
+    st=$(timeout 30 node -e "$NODE_STATE" poll 2>/dev/null)
+    say "series poll $i (ep $((n+1))): state=$st"
+    case "$st" in
+      ERR|'') say "CDP unreachable — retrying"; sleep 60; continue ;;
+      'null')
+        consec=$((consec+1))
+        [[ $consec -ge 2 ]] && { say "player gone 2 checks in a row — stop (ep $((n+1)), n=$n boundaries)"; stop_ffmpeg; exit 0; }
+        sleep 60; continue
+        ;;
+      *)
+        t=$(echo "$st" | sed -n 's/.*"t":\([0-9.]*\).*/\1/p')
+        d=$(echo "$st" | sed -n 's/.*"d":\([0-9]*\).*/\1/p')
+        p=$(echo "$st" | sed -n 's/.*"p":\(true\|false\).*/\1/p')
+        marked=$(echo "$st" | sed -n 's/.*"marked":\(true\|false\).*/\1/p')
+        if [[ "$marked" == "false" ]]; then
+          consec=$((consec+1))
+          [[ $consec -ge 2 ]] && { say "marked element gone 2 checks in a row — stop (n=$n boundaries)"; stop_ffmpeg; exit 0; }
+          sleep 60; continue
+        fi
+        # --- t-RESET: episode boundary -------------------------------------
+        if [[ -n "$prev_t" ]] && awk -v t="$t" -v pt="$prev_t" 'BEGIN{exit !(t < pt - 30)}'; then
+          wall=$(date -u '+%Y-%m-%dT%H:%M:%SZ'); epoch=$(date +%s)
+          printf '{"i":%d,"wall":"%s","epoch":%s,"prev_t":%s,"t":%s,"d":%s}\n' \
+            "$((n+1))" "$wall" "$epoch" "$prev_t" "$t" "$d" >> "$BOUNDARY"
+          n=$((n+1)); prev_t="$t"; consec=0
+          say "BOUNDARY $n: ep $n ended (t $prev_t->$t, d=$d) — next episode auto-played"
+          if [[ $n -ge $EXPECTED ]]; then
+            say "all $EXPECTED episodes done — season complete"
+            stop_ffmpeg; exit 0
+          fi
+          sleep 60; continue
+        fi
+        prev_t="$t"; consec=0
+        # --- last episode end (auto-play off) ------------------------------
+        end_like=0
+        awk -v t="$t" -v d="$d" 'BEGIN{exit !(t >= d-30)}' && end_like=1
+        [[ "$p" == "true" ]] && end_like=1
+        if [[ $end_like -eq 1 && $((n+1)) -ge $EXPECTED ]]; then
+          say "last expected episode ended (t=$t/d=$d p=$p) — season complete"
+          stop_ffmpeg; exit 0
+        fi
+        # --- mid-season stall: nudge up to 3 times --------------------------
+        if [[ $end_like -eq 1 && $((n+1)) -lt $EXPECTED ]]; then
+          if [[ $stalled -eq 0 ]]; then stalled=1; fi
+          if [[ $nudges -lt 3 ]]; then
+            nudges=$((nudges+1))
+            say "episode $((n+1)) stalled at end (t=$t/d=$d p=$p) — nudge $nudges/3"
+            timeout 30 node -e "$NODE_STATE" nudge 2>/dev/null | sed 's/^/[stopper] nudge: /'
+          else
+            say "still stalled after 3 nudges — cannot continue season; stopping (n=$n boundaries)"
+            stop_ffmpeg; exit 0
+          fi
+        fi
+        ;;
+    esac
+    sleep 60
+  done
+  say "6 h of polls — force stop (safety, n=$n boundaries)"
+  stop_ffmpeg
+  exit 0
+fi
+
+WAIT="${1:?wait_seconds}"; MP4="${2:?mp4_path}"
 
 say "movie stopper armed: wait ${WAIT}s then poll (target: $MP4)"
 sleep "$WAIT"
