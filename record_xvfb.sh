@@ -35,8 +35,11 @@ MKV="$OUT_DIR/$STAMP.mkv"; MP4="$OUT_DIR/$STAMP.mp4"
 echo "[record] output: $MKV (-> $MP4)  display=$DISP audio=$SRC"
 
 # sanity: the capture sink must exist, else we'd record silence
-pactl list short sinks | awk -v s="$SRC" '{split($2,n,".monitor"); if (n[1]==s) found=1} END {exit !found}' \
-  || { echo "[record] FATAL: sink monitor for '$SRC' not found (is the null sink loaded?)"; exit 1; }
+# (2026-10-07: the old check compared the monitor name "qwe_cap.monitor"
+# against bare sink names and could NEVER pass — it failed every launch)
+SINK_NAME="${SRC%.monitor}"
+pactl list short sinks | awk -v s="$SINK_NAME" '$2==s {found=1} END {exit !found}' \
+  || { echo "[record] FATAL: sink '$SINK_NAME' not found (is the null sink loaded?)"; exit 1; }
 
 ffmpeg -hide_banner -loglevel warning -stats -f x11grab -thread_queue_size 256 \
   -framerate "$FRAMERATE" -video_size 2560x1440 -i "$DISP" \
