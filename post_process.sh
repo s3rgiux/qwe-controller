@@ -104,8 +104,9 @@ elif [[ "$SEGN" -eq 1 ]]; then
   read -r S T < "$TMP/segments.tsv"
   # NOTE: no $((S+T)) here — bash aborts the WHOLE script (not just the
   # command) on a float arithmetic syntax error inside a compound command
-  echo "[post] single segment cut start=$S len=$T"
-  ffmpeg -nostdin -v error -y -ss "$S" -i "$FILE" -t "$T" -c copy -movflags +faststart "$OUT"
+  SS=$(awk -v s="$S" 'BEGIN{printf "%.6f", s+0.5}')
+  echo "[post] single segment cut start=$S len=$T (ss=$SS)"
+  ffmpeg -nostdin -v error -y -ss "$SS" -i "$FILE" -t "$T" -c copy -movflags +faststart "$OUT"
 else
   echo "[post] cutting + concat $SEGN segments"
   i=0; : > "$TMP/concat.txt"
@@ -114,7 +115,13 @@ else
     # always -t: the plan's T is the exact keep length for EVERY segment
     # (the old last-segment no-`-t` shortcut was wrong when the keep segment
     # is internal, i.e. an ad range extends to end-of-file — Fallout E1 case)
-    ffmpeg -nostdin -v error -y -ss "$S" -i "$FILE" -t "$T" -c copy "$TMP/seg$i.mkv"
+    # -ss offset +0.5: input -ss with -c copy does a FAST seek that can land
+    # on the keyframe BEFORE an exact keyframe target (observed: 7 s early on
+    # the E2 splice). Seeking to (keyframe + 0.5) lands on the keyframe itself
+    # (min keyframe gap in these captures is 1.0 s), so the segment opens on
+    # the intended keyframe and -t T still trims at S+T = the keep end.
+    SS=$(awk -v s="$S" 'BEGIN{printf "%.6f", s+0.5}')
+    ffmpeg -nostdin -v error -y -ss "$SS" -i "$FILE" -t "$T" -c copy "$TMP/seg$i.mkv"
     echo "file 'seg$i.mkv'" >> "$TMP/concat.txt"
   done < "$TMP/segments.tsv"
   ffmpeg -nostdin -v error -y -f concat -safe 0 -i "$TMP/concat.txt" -c copy -movflags +faststart "$OUT"
