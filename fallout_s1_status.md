@@ -44,12 +44,23 @@ subtitles, ad-free, per-episode files on `/media/sergio/My Passport`.
 | 3  | `rec_20261007_053420` (3235 s) | ~3248 actual (d=3419/3533 padded) | en-us ✅ subs off ✅ | **no pre-roll**; 85 s mid-roll @34:38 (iPhone 18 Pro + store + WEAPONS + BIOHAZARD JP film ads, partly DARK = brightness-scan misses the dark halves) + 10 s tail JP ad after credits | `fallout_s1e3_540p_24fps.mp4` 1.5G 52:17 ✅ | — |
 | 4  | `rec_20261007_064444` (2657 s) | ~2665 actual (d=2925/3005 padded) | en-us ✅ subs off ✅ | **no pre-roll**; 3 mid-roll blocks: Hisamitsu 久光製薬 @13:47 (19 s) + keyhole/office-woman @29:00 (63 s) + JP drama「17」@36:55 (32 s, dark dusk stretch before the bright card) + DMM TV JP ad in tail slot @44:12 | `fallout_s1e4_540p_24fps.mp4` 969M 42:13 ✅ | — |
 | 5  | `rec_20261007_073947` (2504 s) | ~2514 actual (d=2720/2800 padded) | en-us ✅ subs off ✅ | **no pre-roll** (dark Vault-33 cold open); 1 ad slot @14:09 (83 s: Abr⁄sus 薄財布 + JTB 旅 + Kao Attack ZERO — vision flagged it as "ad abrus") + keyhole/「Join the Club」/Intel vPRO @35:15 (51 s) + MUFG + KEIRIN 競輪 JP ads in tail slot @41:19 (25 s, after a 1 s credits card) | `fallout_s1e5_540p_24fps.mp4` 928M 38:56 ✅ | — |
+| 6  | `rec_20261007_083333` (3792 s) | ~3595 actual (d=3645→3885 padded) | en-us ✅ subs off ✅ | **no pre-roll**; 3 ad blocks: FamilyMart (Lady Gaga) + health food + Idemitsu @22:31 (79 s) + keyhole/「Join the Club」/BAUS @38:23 (93 s) + MUFG カードローン + storm/train/climbing/VR + TRANSFORM @50:01 (83 s — mostly DARK, scan saw only 46 s of it) + **210 s of E7 leaked into the tail** (stopper gap, below). Ending kept: credits + Amazon Prime logo + 「Fallout」 title card | `fallout_s1e6_540p_24fps.mp4` 1.1G 55:26 ✅ | — |
 
 **d-padding finding (2026-10-07):** Prime's `<video>.duration` over-reports content
 by ~4–7% (E1: d=4641 vs 4340 actual; E2: d=4058 vs 3805 actual). End-of-episode
 detection must rely on the t-reset/element-swap signal (stopper does), NOT
 t≥d−30 (which would fire minutes after the content is already gone… or never,
 since t plateaus below d−30).
+
+**Stopper wall-cap gap (E6, 2026-10-07):** E6's actual content ended (~3595 s)
+slightly AFTER the stopper's wall-time wait cap (arm d−90 = 3555 s), so it
+entered end-poll and MISSED the E6→E7 t-reset that had slipped between the last
+wait-phase poll and the cap entry; end-poll only compares consecutive polls
+(E7's t was increasing) and kept running, recording ~210 s of E7 into the E6
+raw. Killed the recorder manually; the E7 tail was cut in post (credits→E7 edge
+pinned visually). Mitigation for E7/E8: add a 5-min status check near the
+expected stop time and act fast on any stopper anomaly (end-poll without an
+end).
 
 **Ads on this account/territory (Prime JP):** JP commercials spliced into the
 stream — pre-rolls (Machida 救急, SUT 誕生, SUPER DRY — but E3 had NONE),
